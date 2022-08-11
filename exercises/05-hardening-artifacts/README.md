@@ -23,13 +23,24 @@ go install github.com/sigstore/cosign/cmd/cosign@v1.10.1
 To sign the image with an ephemeral key + Fulcio, you can use `cosign sign` command as follows:
 
 ```sh
-# in bash
-IMAGE_NAME_HASHED=$(docker inspect $IMAGE_NAME | jq -r ".[0].RepoDigests[0]")
-COSIGN_EXPERIMENTAL=1 cosign sign $IMAGE_NAME_HASHED
+# Generate an image to sign + Sign the image with an ephemeral key
 
 # in fish
-set IMAGE_NAME_HASHED (docker inspect $IMAGE_NAME | jq -r ".[0].RepoDigests[0]")
+set IMAGE_NAME ttl.sh/(uuidgen | tr [:upper:] [:lower:]):4h
+docker run -v "$PWD":/work distroless.dev/apko build src/alpine-base.yaml $IMAGE_NAME apko-alpine.tar
+crane push apko-alpine.tar $IMAGE_NAME
+
+set IMAGE_NAME_HASHED $IMAGE_NAME@(crane digest $IMAGE_NAME)
 COSIGN_EXPERIMENTAL=1 cosign sign $IMAGE_NAME_HASHED
+
+
+# in bash
+IMAGE_NAME=ttl.sh/$(uuidgen | tr [:upper:] [:lower:]):4h
+docker run -v "$PWD":/work distroless.dev/apko build src/alpine-base.yaml $IMAGE_NAME apko-alpine.tar
+crane push apko-alpine.tar $IMAGE_NAME
+
+IMAGE_NAME_HASHED=$IMAGE_NAME@$(crane digest $IMAGE_NAME)
+COSIGN_EXPERIMENTAL=1 cosign sign $IMAGE_NAME
 ```
 
 To verify the signature, run the following:
@@ -94,6 +105,8 @@ Once Attestations
 First, build a container image with `apko`:
 
 ```sh
+# Generate an image to sign + Sign the image with an ephemeral key
+
 # in fish
 set IMAGE_NAME ttl.sh/(uuidgen | tr [:upper:] [:lower:]):4h
 docker run -v "$PWD":/work distroless.dev/apko build src/alpine-base.yaml $IMAGE_NAME apko-alpine.tar
@@ -102,7 +115,7 @@ crane push apko-alpine.tar $IMAGE_NAME
 # in bash
 IMAGE_NAME=ttl.sh/$(uuidgen | tr [:upper:] [:lower:]):4h
 docker run -v "$PWD":/work distroless.dev/apko build src/alpine-base.yaml $IMAGE_NAME apko-alpine.tar
-docker load < apko-alpine.tar
+crane push apko-alpine.tar $IMAGE_NAME
 ```
 
 Then you'll see `sbom-*.spdx.json` in the current directory. You can attest it to the container image by the following commands:
@@ -120,7 +133,7 @@ cosign download attestation $IMAGE_NAME
 To verify the attestation(s), run the following:
 
 ```sh
-COSIGN_EXPERIMENTAL=1 cosign verify-attestation $IMAGE_NAME
+COSIGN_EXPERIMENTAL=1 cosign verify-attestation $IMAGE_NAME --type spdxjson
 ```
 
 https://docs.sigstore.dev/cosign/attestation/
@@ -132,6 +145,39 @@ What's happening behind attestation process by Cosign? What does the command `co
 ### Exercise (optional): Attest More!
 
 A tool [witness](https://github.com/testifysec/witness) allows you to generate more attestations on build.
+
+### Exercise: Work with Trivy
+
+
+```sh
+# 適当に含まれている脆弱性検査をしたいイメージを用意する
+
+# in bash or zsh
+docker pull alpine:3.10
+set IMAGE_NAME ttl.sh/$(uuidgen | tr "[:upper:]" "[:lower:]"):8h
+docker tag alpine:3.10 $IMAGE_NAME
+docker push $IMAGE_NAME
+
+# in fish
+docker pull alpine:3.10
+set IMAGE_NAME ttl.sh/(uuidgen | tr [:upper:] [:lower:]):8h
+docker tag alpine:3.10 $IMAGE_NAME
+docker push $IMAGE_NAME
+```
+
+```sh
+# Canary 版 Trivy を拾ってくる（最新のリリースに機能が含まれていないため……）
+# https://github.com/aquasecurity/trivy/actions/runs/2832002363
+
+# Trivy で脆弱性情報をスキャンする
+trivy image --format cosign-vuln --output vuln.json $IMAGE_NAME
+
+# スキャンして出てきた結果をイメージに attest する
+COSIGN_EXPERIMENTAL=1 cosign attest --type vuln --predicate vuln.json $IMAGE_NAME
+
+# attestation を verify する
+COSIGN_EXPERIMENTAL=1 cosign verify-attestation $IMAGE_NAME --type vuln
+```
 
 ## Continuous Review of SBoM
 
