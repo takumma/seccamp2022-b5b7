@@ -18,8 +18,8 @@ jobs:
         uses: docker/login-action@v1
         with:
           registry: ghcr.io
-          username: takumma
-          password: ${{ github.token }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: add cosign-installer etc.
       - name: Install cosign
